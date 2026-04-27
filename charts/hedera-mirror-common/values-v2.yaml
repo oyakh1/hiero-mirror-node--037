@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+minio:
+  enabled: true
+stackgres:
+  enabled: true
+zfs:
+  enabled: true

@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+
+importer:
+  config:
+    hiero:
+      mirror:
+        importer:
+          db:
+            loadBalance: false
+          parser:
+            record:
+              entity:
+                persist:
+                  entityTransactions: false
+                  topicMessageLookups: true
+  env:
+    SPRING_PROFILES_ACTIVE: v2
+postgresql:
+  enabled: false
+rest:
+  config:
+    hiero:
+      mirror:
+        rest:
+          query:
+            bindTimestampRange: true
+            topicMessageLookup: true
+stackgres:
+  enabled: true

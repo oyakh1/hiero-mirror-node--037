@@ -1,0 +1,399 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import fs from 'fs';
+import {jest} from '@jest/globals';
+import os from 'os';
+import path from 'path';
+import yaml from 'js-yaml';
+import _ from 'lodash';
+
+let tempDir;
+const custom = {
+  hedera: {
+    mirror: {
+      common: {
+        realm: 2,
+      },
+    },
+  },
+  hiero: {
+    mirror: {
+      common: {
+        shard: 1,
+      },
+      rest: {
+        response: {
+          compression: false,
+          limit: {
+            max: 101,
+          },
+        },
+      },
+    },
+  },
+};
+
+const env = {...process.env};
+
+beforeEach(() => {
+  jest.resetModules();
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rest-'));
+  cleanup();
+  process.env = {CONFIG_PATH: tempDir};
+});
+
+afterEach(() => {
+  fs.rmSync(tempDir, {recursive: true});
+  process.env = env;
+  cleanup();
+});
+
+const assertCustomConfig = (actual, customConfig) => {
+  // fields custom doesn't override
+  expect(actual.rest.response.includeHostInLink).toBe(false);
+  expect(actual.rest.log.level).toBe('info');
+
+  // fields overridden by custom
+  expect(Number(actual.common.realm)).toBe(customConfig.hedera.mirror.common.realm);
+  expect(Number(actual.common.shard)).toBe(customConfig.hiero.mirror.common.shard);
+  expect(actual.rest.response.limit.max).toBe(customConfig.hiero.mirror.rest.response.limit.max);
+  expect(actual.rest.response.compression).toBe(customConfig.hiero.mirror.rest.response.compression);
+};
+
+const loadConfig = async () => (await import('../config')).getMirrorConfig();
+
+const loadCustomConfig = async (customConfig, filename = 'application.yml') => {
+  fs.writeFileSync(path.join(tempDir, filename), yaml.dump(customConfig));
+  return loadConfig();
+};
+
+describe('Load YAML configuration:', () => {
+  test('./config/application.yml', async () => {
+    const config = await loadConfig();
+    expect(config.common.shard).not.toBeNull();
+    expect(config.rest.response.includeHostInLink).toBe(false);
+    expect(config.rest.log.level).toBe('info');
+  });
+
+  test('./application.yml', async () => {
+    fs.writeFileSync(path.join('.', 'application.yml'), yaml.dump(custom));
+    const config = await loadConfig();
+    assertCustomConfig(config, custom);
+  });
+
+  test('CONFIG_PATH/application.yml', async () => {
+    const config = await loadCustomConfig(custom);
+    assertCustomConfig(config, custom);
+  });
+
+  test('CONFIG_PATH/application.yaml', async () => {
+    const config = await loadCustomConfig(custom, 'application.yaml');
+    assertCustomConfig(config, custom);
+  });
+
+  test('CONFIG_PATH/CONFIG_NAME.yml', async () => {
+    process.env['CONFIG_NAME'] = 'config';
+    process.env['CONFIG_PATH'] = tempDir;
+    const config = await loadCustomConfig(custom, 'config.yml');
+    assertCustomConfig(config, custom);
+  });
+});
+
+describe('Load environment configuration:', () => {
+  test('Number', async () => {
+    process.env['HEDERA_MIRROR_COMMON_REALM'] = '3';
+    process.env['HIERO_MIRROR_COMMON_SHARD'] = '2';
+    process.env['HIERO_MIRROR_REST_PORT'] = '5552';
+    const config = await loadConfig();
+    expect(config.common.realm).toBe(3n);
+    expect(config.common.shard).toBe(2n);
+    expect(config.rest.port).toBe(5552);
+  });
+
+  test('Secret', async () => {
+    const secret = 'secret';
+    process.env['HIERO_MIRROR_REST_DB_PASSWORD'] = secret;
+    process.env['HIERO_MIRROR_REST_DB_TLS_KEY'] = secret;
+    const config = await loadConfig();
+    expect(config.rest.db.password).toBe(secret);
+    expect(config.rest.db.tls.key).toBe(secret);
+  });
+
+  test('String', async () => {
+    process.env['HIERO_MIRROR_REST_LOG_LEVEL'] = 'warn';
+    const config = await loadConfig();
+    expect(config.rest.log.level).toBe('warn');
+  });
+
+  test('Boolean', async () => {
+    process.env['HIERO_MIRROR_REST_RESPONSE_INCLUDEHOSTINLINK'] = 'true';
+    const config = await loadConfig();
+    expect(config.rest.response.includeHostInLink).toBe(true);
+  });
+
+  test('Camel case', async () => {
+    process.env['HIERO_MIRROR_REST_QUERY_MAXREPEATEDQUERYPARAMETERS'] = '50';
+    const config = await loadConfig();
+    expect(config.rest.query.maxRepeatedQueryParameters).toBe(50);
+  });
+
+  test('Unknown property', async () => {
+    process.env['HIERO_MIRROR_REST_FOO'] = '3';
+    const config = await loadConfig();
+    expect(config.rest.foo).toBeUndefined();
+  });
+
+  test('Invalid property path', async () => {
+    process.env['HIERO_MIRROR_COMMON_SHARD_FOO'] = '3';
+    const config = await loadConfig();
+    expect(config.common.shard).not.toBeNull();
+    expect(config.common.shard).not.toBe(3n);
+  });
+
+  test('Unexpected prefix', async () => {
+    process.env['HIERO_MIRROR_NODE_REST_PORT'] = '80';
+    const config = await loadConfig();
+    expect(config.rest.port).not.toBe(80);
+  });
+
+  test('Extra path', async () => {
+    process.env['HIERO_MIRROR_REST_SERVICE_PORT'] = '80';
+    const config = await loadConfig();
+    expect(config.rest.port).not.toBe(80);
+  });
+
+  test('Max Timestamp Range 3d', async () => {
+    process.env['HIERO_MIRROR_REST_QUERY_MAXTIMESTAMPRANGE'] = '3d';
+    const config = await loadConfig();
+    expect(config.rest.query.maxTimestampRangeNs).toBe(259200000000000n);
+  });
+
+  test('Max Timestamp Range 120d - larger than js MAX_SAFE_INTEGER', async () => {
+    process.env['HIERO_MIRROR_REST_QUERY_MAXTIMESTAMPRANGE'] = '120d';
+    const config = await loadConfig();
+    expect(config.rest.query.maxTimestampRangeNs).toBe(10368000000000000n);
+  });
+
+  test('Max Timestamp Range invalid', async () => {
+    process.env['HIERO_MIRROR_REST_QUERY_MAXTIMESTAMPRANGE'] = '3x';
+    await expect(loadConfig()).rejects.toThrowErrorMatchingSnapshot();
+  });
+
+  test('Max Timestamp Range null', async () => {
+    process.env['HIERO_MIRROR_REST_QUERY_MAXTIMESTAMPRANGE'] = null;
+    await expect(loadConfig()).rejects.toThrowErrorMatchingSnapshot();
+  });
+});
+
+describe('Override query config', () => {
+  const customConfig = (queryConfig) => ({
+    hiero: {
+      mirror: {
+        rest: {
+          query: queryConfig,
+        },
+      },
+    },
+  });
+
+  test('success', async () => {
+    const queryConfig = {
+      bindTimestampRange: true,
+      maxRecordFileCloseInterval: '8s',
+      maxRepeatedQueryParameters: 2,
+      maxScheduledTransactionConsensusTimestampRange: '1440m',
+      maxTimestampRange: '1d',
+      maxTransactionConsensusTimestampRange: '10m',
+      maxTransactionsTimestampRange: '20d',
+      maxValidStartTimestampDrift: '1s',
+    };
+    const expected = {
+      bindTimestampRange: true,
+      maxRecordFileCloseInterval: '8s',
+      maxRecordFileCloseIntervalNs: 8000000000n,
+      maxRepeatedQueryParameters: 2,
+      maxScheduledTransactionConsensusTimestampRange: '1440m',
+      maxScheduledTransactionConsensusTimestampRangeNs: 86400000000000n,
+      maxTimestampRange: '1d',
+      maxTimestampRangeNs: 86400000000000n,
+      maxTransactionConsensusTimestampRange: '10m',
+      maxTransactionConsensusTimestampRangeNs: 600000000000n,
+      maxTransactionsTimestampRange: '20d',
+      maxTransactionsTimestampRangeNs: 1728000000000000n,
+      maxValidStartTimestampDrift: '1s',
+      maxValidStartTimestampDriftNs: 1000000000n,
+      strictTimestampParam: true,
+      topicMessageLookup: false,
+      transactions: {
+        precedingTransactionTypes: [11, 15],
+      },
+    };
+    const config = await loadCustomConfig(customConfig(queryConfig));
+    expect(config.rest.query).toEqual(expected);
+  });
+
+  test.each`
+    name                                                        | queryConfig
+    ${'invalid maxRecordFileCloseInterval'}                     | ${{maxRecordFileCloseInterval: '1g'}}
+    ${'invalid maxScheduledTransactionConsensusTimestampRange'} | ${{maxScheduledTransactionConsensusTimestampRange: '1k'}}
+    ${'invalid maxTimestampRange'}                              | ${{maxTimestampRange: '1q'}}
+    ${'invalid maxTransactionConsensusTimestampRange'}          | ${{maxTransactionConsensusTimestampRange: '1z'}}
+    ${'invalid maxTransactionsTimestampRange'}                  | ${{maxTransactionsTimestampRange: '1z'}}
+  `('$name', async ({queryConfig}) => {
+    await expect(loadCustomConfig(customConfig(queryConfig))).rejects.toThrowErrorMatchingSnapshot();
+  });
+});
+
+describe('Override db pool config', () => {
+  const customConfig = (poolConfig) => ({
+    hiero: {
+      mirror: {
+        rest: {
+          db: {
+            pool: poolConfig,
+          },
+        },
+      },
+    },
+  });
+
+  const testSpecs = [
+    {
+      name: 'the default values should be valid',
+      expectThrow: false,
+    },
+    {
+      name: 'override with valid integer values',
+      override: {
+        connectionTimeout: 200,
+        maxConnections: 5,
+        statementTimeout: 100,
+      },
+      expected: {
+        connectionTimeout: 200,
+        maxConnections: 5,
+        statementTimeout: 100,
+      },
+    },
+    {
+      name: 'override with valid string values',
+      override: {
+        connectionTimeout: '200',
+        maxConnections: '5',
+        statementTimeout: '100',
+      },
+      expected: {
+        connectionTimeout: 200,
+        maxConnections: 5,
+        statementTimeout: 100,
+      },
+    },
+    ..._.flattenDeep(
+      [-1, 0, true, false, '', 'NaN'].map((value) => {
+        return ['connectionTimeout', 'maxConnections', 'statementTimeout'].map((configKey) => {
+          return {
+            name: `override ${configKey} with invalid value ${JSON.stringify(value)}`,
+            override: {
+              [configKey]: value,
+            },
+            expectThrow: true,
+          };
+        });
+      })
+    ),
+  ];
+
+  testSpecs.forEach((testSpec) => {
+    const {name, override, expected, expectThrow} = testSpec;
+    test(name, async () => {
+      if (!expectThrow) {
+        const config = await loadCustomConfig(customConfig(override));
+        if (expected) {
+          expect(config.rest.db.pool).toEqual(expected);
+        }
+      } else {
+        await expect(loadCustomConfig(customConfig(override))).rejects.toThrow();
+      }
+    });
+  });
+});
+
+describe('getResponseLimit', () => {
+  test('default', async () => {
+    const func = (await import('../config')).getResponseLimit;
+    expect(func()).toEqual({default: 25, max: 100, tokenBalance: {multipleAccounts: 50, singleAccount: 1000}});
+  });
+  test('custom response limit', async () => {
+    const module = await import('../config');
+    const customLimit = {default: 10, max: 200, tokenBalance: {multipleAccounts: 90, singleAccount: 200}};
+    module.default.response.limit = customLimit;
+    expect(module.getResponseLimit()).toEqual(customLimit);
+  });
+});
+
+describe('users config validation', () => {
+  test('valid users configuration', async () => {
+    const validConfig = {
+      hiero: {
+        mirror: {
+          rest: {
+            users: [
+              {username: 'user1', password: 'pass1', limit: 100},
+              {username: 'user2', password: 'pass2', limit: 200},
+            ],
+          },
+        },
+      },
+    };
+    const configFile = path.join(tempDir, 'application.yml');
+    fs.writeFileSync(configFile, yaml.dump(validConfig));
+    const config = (await import('../config')).default;
+    expect(config.users).toEqual([
+      {username: 'user1', password: 'pass1', limit: 100},
+      {username: 'user2', password: 'pass2', limit: 200},
+    ]);
+  });
+
+  test('empty users array is valid', async () => {
+    const validConfig = {
+      hiero: {
+        mirror: {
+          rest: {
+            users: [],
+          },
+        },
+      },
+    };
+    const configFile = path.join(tempDir, 'application.yml');
+    fs.writeFileSync(configFile, yaml.dump(validConfig));
+    const config = (await import('../config')).default;
+    expect(config.users).toEqual([]);
+  });
+
+  test('users without limit is valid', async () => {
+    const validConfig = {
+      hiero: {
+        mirror: {
+          rest: {
+            users: [{username: 'user1', password: 'pass1'}],
+          },
+        },
+      },
+    };
+    const configFile = path.join(tempDir, 'application.yml');
+    fs.writeFileSync(configFile, yaml.dump(validConfig));
+    const config = (await import('../config')).default;
+    expect(config.users).toEqual([{username: 'user1', password: 'pass1'}]);
+  });
+});
+
+function unlink(file) {
+  if (fs.existsSync(file)) {
+    fs.unlinkSync(file);
+  }
+}
+
+function cleanup() {
+  unlink(path.join('.', 'application.yml'));
+  unlink(path.join('.', 'application.yaml'));
+}

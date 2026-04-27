@@ -1,0 +1,12 @@
+*.iml
+*.log
+*.tgz
+.*
+__tests__/
+/application.yml
+/jest.config.js
+build/
+coverage/
+Dockerfile
+node/
+pom.xml

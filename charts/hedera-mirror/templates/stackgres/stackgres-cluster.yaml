@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: Apache-2.0
+
+{{ if .Values.stackgres.enabled -}}
+apiVersion: stackgres.io/v1alpha1
+kind: SGShardedCluster
+metadata:
+  labels: {{ include "hedera-mirror.labels" . | nindent 4 }}
+  name: {{ include "hedera-mirror.stackgres" . }}
+  namespace: {{ include "hedera-mirror.namespace" . }}
+spec:
+  configurations:
+    {{- if .Values.stackgres.backup.enabled }}
+    backups:
+    {{- range $backupConfig := .Values.stackgres.backup.instances }}
+    - sgObjectStorage: {{ include "hedera-mirror.stackgres" $ }}-object-storage
+      {{ $backupConfig | toYaml | nindent 6 }}
+    {{- end }}
+    {{- end }}
+    observability:
+      disableMetrics: {{ not .Values.stackgres.observability.enableMetricsExporter }}
+      prometheusAutobind: {{ .Values.stackgres.observability.enableMetricsExporter }}
+  coordinator:
+    configurations:
+      patroni: {{ toYaml .Values.stackgres.coordinator.configurations.patroni | nindent 8 }}
+      sgPoolingConfig: {{ include "hedera-mirror.stackgres" . }}-coordinator
+      sgPostgresConfig: {{ include "hedera-mirror.stackgres" . }}-coordinator
+    instances: {{ .Values.stackgres.coordinator.instances }}
+    managedSql:
+      scripts:
+        - sgScript: {{ include "hedera-mirror.stackgres" . }}-coordinator
+    pods:
+      disableEnvoy: {{ not .Values.stackgres.coordinator.enableEnvoy }}
+      disablePostgresUtil: {{ not .Values.stackgres.coordinator.enablePostgresUtil }}
+      persistentVolume: {{ .Values.stackgres.coordinator.persistentVolume | toYaml | nindent 8 }}
+      resources:
+        disableResourcesRequestsSplitFromTotal: {{ .Values.stackgres.dedicatedResourcesRequests }}
+      scheduling:
+        backup:
+          priorityClassName: {{ .Values.stackgres.priorityClassName }}
+        priorityClassName: {{ .Values.stackgres.priorityClassName }}
+        {{- if eq ((.Values.stackgres.coordinator.persistentVolume).storageClass) "zfs" }}
+        nodeSelector:
+          citus-role: coordinator
+          csi-type: zfs
+        tolerations:
+          - key: zfs
+            operator: Equal
+            value: "true"
+            effect: NoSchedule
+        {{- end }}
+    replication:
+      # can remove this initialization block once https://gitlab.com/ongresinc/stackgres/-/work_items/3140 is resolved
+      initialization:
+        mode: {{ .Values.stackgres.replication.initialization.mode }}
+    sgInstanceProfile: {{ include "hedera-mirror.stackgres" . }}-coordinator
+  database: {{ .Values.db.name }}
+  nonProductionOptions:
+    disableClusterPodAntiAffinity: {{ not .Values.stackgres.podAntiAffinity }}
+  postgres:
+    extensions: {{ .Values.stackgres.extensions | toYaml | nindent 6 }}
+    ssl:
+      enabled: false  # Disable SSL to work around issue 9143
+    version: {{ .Values.stackgres.postgresVersion | quote }}
+  replication:
+    initialization:
+      mode: {{ .Values.stackgres.replication.initialization.mode }}
+    mode: {{ .Values.stackgres.replication.mode }}
+  shards:
+    clusters: {{ .Values.stackgres.worker.instances }}
+    configurations:
+      patroni: {{ toYaml .Values.stackgres.worker.configurations.patroni | nindent 8 }}
+      sgPoolingConfig: {{ include "hedera-mirror.stackgres" . }}-worker
+      sgPostgresConfig: {{ include "hedera-mirror.stackgres" . }}-worker
+    instancesPerCluster: {{ .Values.stackgres.worker.replicasPerInstance }}
+    managedSql:
+      scripts:
+        - sgScript: {{ include "hedera-mirror.stackgres" . }}-worker
+    overrides: {{ .Values.stackgres.worker.overrides | toYaml | nindent 6 }}
+    pods:
+      disableEnvoy: {{ not .Values.stackgres.worker.enableEnvoy }}
+      disablePostgresUtil: {{ not .Values.stackgres.worker.enablePostgresUtil }}
+      persistentVolume: {{ .Values.stackgres.worker.persistentVolume | toYaml | nindent 8 }}
+      resources:
+        disableResourcesRequestsSplitFromTotal: {{ .Values.stackgres.dedicatedResourcesRequests }}
+      scheduling:
+        backup:
+          priorityClassName: {{ .Values.stackgres.priorityClassName }}
+        priorityClassName: {{ .Values.stackgres.priorityClassName }}
+        {{- if eq ((.Values.stackgres.worker.persistentVolume).storageClass) "zfs" }}
+        nodeSelector:
+          citus-role: worker
+          csi-type: zfs
+        tolerations:
+          - key: zfs
+            operator: Equal
+            value: "true"
+            effect: NoSchedule
+        {{- end }}
+    sgInstanceProfile: {{ include "hedera-mirror.stackgres" . }}-worker
+  type: citus
+{{- end -}}

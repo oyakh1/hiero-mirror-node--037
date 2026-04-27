@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
+{{ if and .Values.prometheus.enabled .Values.prometheus.grafana.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels: {{ include "hedera-mirror-common.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  name: {{ include "hedera-mirror-common.fullname" . }}-dashboards
+  namespace: {{ include "hedera-mirror-common.namespace" . }}
+data:
+  {{- range $path, $_ := .Files.Glob "dashboards/*" }}
+   {{ $path | base }}: {{ $.Files.Get $path | fromJson | toJson  | quote }}
+  {{- end }}
+{{ end }}
