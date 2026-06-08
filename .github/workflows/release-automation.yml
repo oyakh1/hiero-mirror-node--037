@@ -32,13 +32,13 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
       - name: Parse Version
         id: version_parser
-        uses: step-security/semver-utils@4ae9c1fd6d1c5f8f152fe7e2efe8069a952c2ace # v4.3.2
+        uses: step-security/semver-utils@5bb182a08240146b23b61cc002cb74004377da4b # v5.0.0
         with:
           lenient: false
           version: ${{ github.event.inputs.version }}
@@ -61,7 +61,7 @@ jobs:
           EOF
 
       - name: Checkout Repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
           ref: main
@@ -107,7 +107,7 @@ jobs:
       - name: Close the Milestone
         if: ${{ steps.version_parser.outputs.prerelease == '' }}
         id: milestone
-        uses: step-security/close-milestone@b097272a7aaa0f5c40dc6bc671d45d35c5e85b51 # v2.2.1
+        uses: step-security/close-milestone@d6e3b63e31f1f869bd3d0403f8cdc1a68f59ab4a # v2.2.2
         with:
           milestone_name: ${{ steps.version_parser.outputs.release }}
         env:
@@ -153,12 +153,12 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
       - name: Checkout Repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: main
 
