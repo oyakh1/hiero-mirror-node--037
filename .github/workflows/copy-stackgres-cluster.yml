@@ -160,12 +160,12 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: main
           fetch-depth: 0
@@ -248,12 +248,12 @@ jobs:
 
       - name: Setup Testkube CLI
         if: ${{ inputs.run_k6_test == true }}
-        uses: kubeshop/setup-testkube@3deb6ba0cd26e0d890e278d59f996bd30d58b567 # v1.0.12
+        uses: kubeshop/setup-testkube@da4b4be0ae108ecdb0d1a7a546438b97c244acd0 # v1.0.13
         with:
           version: v2.3.0
 
       - name: Setup Flux CLI
-        uses: fluxcd/flux2/action@04acaec6161ac4fb1a82ffafa88901c03271d34f # v2.8.6
+        uses: fluxcd/flux2/action@6a650dba1b4ae9945185c4bb3cc3f386aaf71b3d # v2.9.2
         with:
           version: v2.3.0
 
